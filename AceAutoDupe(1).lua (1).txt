@@ -1,0 +1,777 @@
+-- ACE DUELS AUTO DUPE
+-- ACE UI style + MiniDupe logic (item select, auto dupe loop)
+
+local P = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local LP = P.LocalPlayer
+local playerGui = LP:WaitForChild("PlayerGui")
+
+-- ============================================
+-- UTILITIES
+-- ============================================
+
+local function ntf(a, b)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {Title = tostring(a), Text = tostring(b), Duration = 3})
+    end)
+end
+
+local function fpr(p)
+    if not (p and p:IsA("ProximityPrompt")) then return end
+    if fireproximityprompt then if pcall(fireproximityprompt, p) then return end end
+    pcall(function()
+        local h, d, l = p.HoldDuration, p.MaxActivationDistance, p.RequiresLineOfSight
+        p.HoldDuration = 0 p.MaxActivationDistance = 1000 p.RequiresLineOfSight = false
+        p:InputHoldBegin() task.wait() p:InputHoldEnd()
+        p.MaxActivationDistance = d p.HoldDuration = h p.RequiresLineOfSight = l
+    end)
+end
+
+local function oName(o)
+    local v = ""
+    pcall(function()
+        if o:IsA("StringValue") then v = tostring(o.Value) else v = o.Value and o.Value.Name or "" end
+    end)
+    return v
+end
+
+local function findMyHouse()
+    for _, o in ipairs(workspace:GetDescendants()) do
+        if o.Name:lower() == "owner" and (o:IsA("StringValue") or o:IsA("ObjectValue")) then
+            local n = oName(o)
+            if n == LP.Name or n == LP.DisplayName then return o.Parent end
+        end
+    end
+    return nil
+end
+
+local function getSafe()
+    for _, o in ipairs(workspace:GetDescendants()) do
+        if o.Name:lower() == "owner" and (o:IsA("StringValue") or o:IsA("ObjectValue")) then
+            local n = oName(o)
+            if n == LP.Name or n == LP.DisplayName then
+                local a = o.Parent
+                while a and a ~= workspace do
+                    local s = a:FindFirstChild("Safe", true)
+                    if s then
+                        local p = s:IsA("BasePart") and s or s:FindFirstChildWhichIsA("BasePart", true)
+                        return s, p and p.CFrame
+                    end
+                    a = a.Parent
+                end
+            end
+        end
+    end
+    return nil, nil
+end
+
+-- ===== item selection (ported from bread.cc Safe Dupe tab) =====
+dupeBlacklist = {
+    ["Fists"]=true, ["Fist"]=true, ["Phone"]=true, ["Car Keys"]=true,
+    ["Car keys"]=false, ["Bandage"]=true, ["762s"]=true, ["556s"]=true,
+    ["Extended"]=true, ["T shirt"]=true, ["Combat"]=true, ["Weight"]=true,
+    ["Shiesty"]=false, ["Lemonade"]=true,
+}
+
+local selectedDupeItem = nil -- nil = All (random), otherwise the chosen tool name
+
+local function GetLockedTools()
+    local items = {}
+    local char = LP.Character
+    local bp = LP:FindFirstChild("Backpack")
+    if char then for _, t in pairs(char:GetChildren()) do
+        if t:IsA("Tool") and not dupeBlacklist[t.Name] and not table.find(items, t.Name) then table.insert(items, t.Name) end
+    end end
+    if bp then for _, t in pairs(bp:GetChildren()) do
+        if t:IsA("Tool") and not dupeBlacklist[t.Name] and not table.find(items, t.Name) then table.insert(items, t.Name) end
+    end end
+    table.sort(items); return items
+end
+
+local function dupe1(n)
+    local s, cf = getSafe()
+    if not s or not cf then return false end
+    local c = LP.Character
+    local r = c and c:FindFirstChild("HumanoidRootPart")
+    if not r then return false end
+    local o = r.CFrame
+    pcall(function()
+        r.CFrame = cf * CFrame.new(0, 2, 0) task.wait(0.5)
+        for _, pr in ipairs(s:GetDescendants()) do
+            if pr:IsA("ProximityPrompt") and pr.Enabled then
+                local od = pr.HoldDuration
+                pr.HoldDuration = 0 pr.RequiresLineOfSight = false
+                pcall(function() fpr(pr) end)
+                pr.HoldDuration = od
+            end
+        end
+        task.wait(0.5)
+        task.spawn(function() RS:WaitForChild("BackpackRemote"):InvokeServer("Store", n) end)
+        task.spawn(function() RS:WaitForChild("Inventory"):FireServer("Change", n, "Backpack", s) end)
+        task.wait(0.8) r.CFrame = o task.wait(0.8) RS:WaitForChild("BackpackRemote"):InvokeServer("Grab", n) task.wait(0.5)
+    end)
+    return true
+end
+
+-- ============================================
+-- ACE UI
+-- ============================================
+
+local AceAutoDupe = Instance.new("ScreenGui")
+AceAutoDupe.Name = "AceAutoDupe"
+AceAutoDupe.IgnoreGuiInset = true
+AceAutoDupe.ResetOnSpawn = false
+AceAutoDupe.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+AceAutoDupe.DisplayOrder = 500
+AceAutoDupe.Parent = playerGui
+
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Active = true
+Main.ClipsDescendants = true
+Main.Position = UDim2.new(0.5, -155, 0.3, 0)
+Main.Size = UDim2.new(0, 310, 0, 0)
+Main.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Main.BorderSizePixel = 0
+Main.AutomaticSize = Enum.AutomaticSize.Y
+Main.Parent = AceAutoDupe
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 16)
+UICorner.Parent = Main
+
+local UIGradient = Instance.new("UIGradient")
+UIGradient.Color = ColorSequence.new(Color3.fromRGB(34, 2, 4), Color3.fromRGB(0, 0, 0))
+UIGradient.Rotation = 90
+UIGradient.Parent = Main
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Thickness = 3
+UIStroke.Color = Color3.fromRGB(235, 20, 26)
+UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+UIStroke.Parent = Main
+
+local UIScale = Instance.new("UIScale")
+UIScale.Scale = 0.62
+UIScale.Parent = Main
+
+local Background = Instance.new("ImageLabel")
+Background.Size = UDim2.new(1, 0, 1, 0)
+Background.BackgroundTransparency = 1
+Background.BorderSizePixel = 0
+Background.Image = "rbxassetid://80161793688220"
+Background.ImageTransparency = 0.15
+Background.ScaleType = Enum.ScaleType.Crop
+Background.Parent = Main
+
+local UICorner2 = Instance.new("UICorner")
+UICorner2.CornerRadius = UDim.new(0, 16)
+UICorner2.Parent = Background
+
+local TitleBar = Instance.new("Frame")
+TitleBar.ZIndex = 3
+TitleBar.Size = UDim2.new(1, 0, 0, 54)
+TitleBar.BackgroundTransparency = 1
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = Main
+
+local Title = Instance.new("TextLabel")
+Title.ZIndex = 4
+Title.Position = UDim2.new(0, 16, 0, 12)
+Title.Size = UDim2.new(1, -120, 0, 30)
+Title.BackgroundTransparency = 1
+Title.Text = "YVL AUTO DUPE"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 19
+Title.Font = Enum.Font.LuckiestGuy
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextTruncate = Enum.TextTruncate.AtEnd
+Title.TextStrokeTransparency = 0.55
+Title.Parent = TitleBar
+
+local UIStroke2 = Instance.new("UIStroke")
+UIStroke2.Thickness = 1.6
+UIStroke2.Transparency = 0.35
+UIStroke2.Color = Color3.fromRGB(235, 20, 26)
+UIStroke2.Parent = Title
+
+local Hide = Instance.new("TextButton")
+Hide.ZIndex = 4
+Hide.Position = UDim2.new(1, -64, 0.5, -12)
+Hide.Size = UDim2.new(0, 48, 0, 24)
+Hide.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+Hide.BorderSizePixel = 0
+Hide.Text = "Hide"
+Hide.TextColor3 = Color3.fromRGB(255, 255, 255)
+Hide.TextSize = 12
+Hide.Font = Enum.Font.GothamBold
+Hide.AutoButtonColor = false
+Hide.Parent = TitleBar
+
+local UICorner3 = Instance.new("UICorner")
+UICorner3.Parent = Hide
+
+local Lock = Instance.new("TextButton")
+Lock.ZIndex = 4
+Lock.Position = UDim2.new(1, -96, 0.5, -12)
+Lock.Size = UDim2.new(0, 28, 0, 24)
+Lock.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+Lock.BorderSizePixel = 0
+Lock.Text = "🔓"
+Lock.TextColor3 = Color3.fromRGB(255, 255, 255)
+Lock.TextSize = 14
+Lock.Font = Enum.Font.GothamBold
+Lock.AutoButtonColor = false
+Lock.Parent = TitleBar
+
+local UICorner4 = Instance.new("UICorner")
+UICorner4.Parent = Lock
+
+local HeaderLine = Instance.new("Frame")
+HeaderLine.ZIndex = 3
+HeaderLine.Position = UDim2.new(0, 16, 0, 54)
+HeaderLine.Size = UDim2.new(1, -32, 0, 1)
+HeaderLine.BackgroundColor3 = Color3.fromRGB(235, 20, 26)
+HeaderLine.BackgroundTransparency = 0.6
+HeaderLine.BorderSizePixel = 0
+HeaderLine.Parent = Main
+
+local Body = Instance.new("Frame")
+Body.ZIndex = 3
+Body.Position = UDim2.new(0, 0, 0, 64)
+Body.Size = UDim2.new(1, 0, 0, 0)
+Body.BackgroundTransparency = 1
+Body.BorderSizePixel = 0
+Body.AutomaticSize = Enum.AutomaticSize.Y
+Body.Parent = Main
+
+local BodyLayout = Instance.new("UIListLayout")
+BodyLayout.Padding = UDim.new(0, 4)
+BodyLayout.FillDirection = Enum.FillDirection.Vertical
+BodyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+BodyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+BodyLayout.Parent = Body
+
+-- AUTO DUPE ROW
+local AutoDupeRow = Instance.new("Frame")
+AutoDupeRow.ZIndex = 4
+AutoDupeRow.LayoutOrder = 1
+AutoDupeRow.Size = UDim2.new(1, -32, 0, 36)
+AutoDupeRow.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+AutoDupeRow.BackgroundTransparency = 0.25
+AutoDupeRow.BorderSizePixel = 0
+AutoDupeRow.Parent = Body
+
+local UICorner21 = Instance.new("UICorner")
+UICorner21.CornerRadius = UDim.new(0, 10)
+UICorner21.Parent = AutoDupeRow
+
+local AccentBar2 = Instance.new("Frame")
+AccentBar2.ZIndex = 5
+AccentBar2.Position = UDim2.new(0, 9, 0.5, -9)
+AccentBar2.Size = UDim2.new(0, 3, 0, 18)
+AccentBar2.BackgroundColor3 = Color3.fromRGB(235, 20, 26)
+AccentBar2.BorderSizePixel = 0
+AccentBar2.Parent = AutoDupeRow
+
+local UICorner22 = Instance.new("UICorner")
+UICorner22.CornerRadius = UDim.new(1, 0)
+UICorner22.Parent = AccentBar2
+
+local Label2 = Instance.new("TextLabel")
+Label2.ZIndex = 5
+Label2.Position = UDim2.new(0, 20, 0, 0)
+Label2.Size = UDim2.new(1, -110, 1, 0)
+Label2.BackgroundTransparency = 1
+Label2.Text = "Auto Dupe"
+Label2.TextColor3 = Color3.fromRGB(255, 255, 255)
+Label2.TextSize = 13
+Label2.Font = Enum.Font.GothamBold
+Label2.TextXAlignment = Enum.TextXAlignment.Left
+Label2.TextTruncate = Enum.TextTruncate.AtEnd
+Label2.TextStrokeTransparency = 0.6
+Label2.Parent = AutoDupeRow
+
+local Hit = Instance.new("TextButton")
+Hit.ZIndex = 6
+Hit.Size = UDim2.new(1, 0, 1, 0)
+Hit.BackgroundTransparency = 1
+Hit.Text = ""
+Hit.AutoButtonColor = false
+Hit.Parent = AutoDupeRow
+
+local Track = Instance.new("Frame")
+Track.ZIndex = 7
+Track.Position = UDim2.new(1, -56, 0.5, -12)
+Track.Size = UDim2.new(0, 46, 0, 24)
+Track.BackgroundColor3 = Color3.fromRGB(48, 48, 52)
+Track.BorderSizePixel = 0
+Track.Parent = AutoDupeRow
+
+local UICorner23 = Instance.new("UICorner")
+UICorner23.CornerRadius = UDim.new(1, 0)
+UICorner23.Parent = Track
+
+local UIStroke5 = Instance.new("UIStroke")
+UIStroke5.Transparency = 0.5
+UIStroke5.Color = Color3.fromRGB(255, 255, 255)
+UIStroke5.Parent = Track
+
+local Knob = Instance.new("Frame")
+Knob.ZIndex = 8
+Knob.Position = UDim2.new(0, 3, 0.5, -9)
+Knob.Size = UDim2.new(0, 18, 0, 18)
+Knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Knob.BorderSizePixel = 0
+Knob.Parent = Track
+
+local UICorner24 = Instance.new("UICorner")
+UICorner24.CornerRadius = UDim.new(1, 0)
+UICorner24.Parent = Knob
+
+-- ITEM SELECT ROW
+local ItemRow = Instance.new("Frame")
+ItemRow.ZIndex = 4
+ItemRow.LayoutOrder = 2
+ItemRow.Size = UDim2.new(1, -32, 0, 36)
+ItemRow.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+ItemRow.BackgroundTransparency = 0.25
+ItemRow.BorderSizePixel = 0
+ItemRow.Parent = Body
+
+local UICorner25 = Instance.new("UICorner")
+UICorner25.CornerRadius = UDim.new(0, 10)
+UICorner25.Parent = ItemRow
+
+local AccentBar3 = Instance.new("Frame")
+AccentBar3.ZIndex = 5
+AccentBar3.Position = UDim2.new(0, 9, 0.5, -9)
+AccentBar3.Size = UDim2.new(0, 3, 0, 18)
+AccentBar3.BackgroundColor3 = Color3.fromRGB(235, 20, 26)
+AccentBar3.BorderSizePixel = 0
+AccentBar3.Parent = ItemRow
+
+local UICorner26 = Instance.new("UICorner")
+UICorner26.CornerRadius = UDim.new(1, 0)
+UICorner26.Parent = AccentBar3
+
+local Label3 = Instance.new("TextLabel")
+Label3.ZIndex = 5
+Label3.Position = UDim2.new(0, 20, 0, 0)
+Label3.Size = UDim2.new(1, -130, 1, 0)
+Label3.BackgroundTransparency = 1
+Label3.Text = "Item"
+Label3.TextColor3 = Color3.fromRGB(255, 255, 255)
+Label3.TextSize = 13
+Label3.Font = Enum.Font.GothamBold
+Label3.TextXAlignment = Enum.TextXAlignment.Left
+Label3.TextTruncate = Enum.TextTruncate.AtEnd
+Label3.TextStrokeTransparency = 0.6
+Label3.Parent = ItemRow
+
+local DropBtn = Instance.new("TextButton")
+DropBtn.ZIndex = 7
+DropBtn.Position = UDim2.new(1, -166, 0.5, -13)
+DropBtn.Size = UDim2.new(0, 156, 0, 26)
+DropBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+DropBtn.BackgroundTransparency = 0.45
+DropBtn.BorderSizePixel = 0
+DropBtn.Text = "ALL (RANDOM)  ▼"
+DropBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DropBtn.TextSize = 11
+DropBtn.Font = Enum.Font.GothamBold
+DropBtn.AutoButtonColor = false
+DropBtn.Parent = ItemRow
+
+local UICorner30 = Instance.new("UICorner")
+UICorner30.CornerRadius = UDim.new(0, 9)
+UICorner30.Parent = DropBtn
+
+local DropStroke = Instance.new("UIStroke")
+DropStroke.Color = Color3.fromRGB(235, 20, 26)
+DropStroke.Transparency = 0.5
+DropStroke.Parent = DropBtn
+
+-- dropdown list (pops below the row, outside clipped Main)
+local ListFrame = Instance.new("Frame")
+ListFrame.ZIndex = 50
+ListFrame.Size = UDim2.new(0, 278, 0, 0)
+ListFrame.Position = UDim2.fromOffset(0, 0)
+ListFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 14)
+ListFrame.BorderSizePixel = 0
+ListFrame.Visible = false
+ListFrame.ClipsDescendants = true
+ListFrame.Parent = AceAutoDupe
+
+local ListCorner = Instance.new("UICorner")
+ListCorner.CornerRadius = UDim.new(0, 10)
+ListCorner.Parent = ListFrame
+
+local ListStroke = Instance.new("UIStroke")
+ListStroke.Color = Color3.fromRGB(235, 20, 26)
+ListStroke.Thickness = 1.5
+ListStroke.Transparency = 0.4
+ListStroke.Parent = ListFrame
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.ZIndex = 51
+Scroll.Size = UDim2.new(1, -12, 1, -12)
+Scroll.Position = UDim2.fromOffset(6, 6)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 3
+Scroll.ScrollBarImageColor3 = Color3.fromRGB(235, 20, 26)
+Scroll.CanvasSize = UDim2.fromOffset(0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = ListFrame
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 4)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ListLayout.Parent = Scroll
+
+-- STATUS ROW
+local StatusRow = Instance.new("Frame")
+StatusRow.ZIndex = 4
+StatusRow.LayoutOrder = 3
+StatusRow.Size = UDim2.new(1, -32, 0, 30)
+StatusRow.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+StatusRow.BackgroundTransparency = 0.25
+StatusRow.BorderSizePixel = 0
+StatusRow.Parent = Body
+
+local UICorner31 = Instance.new("UICorner")
+UICorner31.CornerRadius = UDim.new(0, 10)
+UICorner31.Parent = StatusRow
+
+local AccentBar4 = Instance.new("Frame")
+AccentBar4.ZIndex = 5
+AccentBar4.Position = UDim2.new(0, 9, 0.5, -9)
+AccentBar4.Size = UDim2.new(0, 3, 0, 18)
+AccentBar4.BackgroundColor3 = Color3.fromRGB(235, 20, 26)
+AccentBar4.BorderSizePixel = 0
+AccentBar4.Parent = StatusRow
+
+local UICorner32 = Instance.new("UICorner")
+UICorner32.CornerRadius = UDim.new(1, 0)
+UICorner32.Parent = AccentBar4
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.ZIndex = 5
+StatusLabel.Position = UDim2.new(0, 20, 0, 0)
+StatusLabel.Size = UDim2.new(1, -40, 1, 0)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Status: Idle"
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.TextSize = 12
+StatusLabel.Font = Enum.Font.GothamBold
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+StatusLabel.TextStrokeTransparency = 0.6
+StatusLabel.Parent = StatusRow
+
+-- STEAL/PROGRESS BAR
+local DupeBar = Instance.new("Frame")
+DupeBar.ZIndex = 4
+DupeBar.ClipsDescendants = true
+DupeBar.LayoutOrder = 4
+DupeBar.Size = UDim2.new(1, -32, 0, 26)
+DupeBar.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
+DupeBar.BackgroundTransparency = 0.15
+DupeBar.BorderSizePixel = 0
+DupeBar.Parent = Body
+
+local UICorner18 = Instance.new("UICorner")
+UICorner18.CornerRadius = UDim.new(1, 0)
+UICorner18.Parent = DupeBar
+
+local UIGradient2 = Instance.new("UIGradient")
+UIGradient2.Color = ColorSequence.new(Color3.fromRGB(30, 30, 30), Color3.fromRGB(8, 8, 8))
+UIGradient2.Rotation = 90
+UIGradient2.Parent = DupeBar
+
+local UIStroke4 = Instance.new("UIStroke")
+UIStroke4.Color = Color3.fromRGB(235, 20, 26)
+UIStroke4.Thickness = 1.2
+UIStroke4.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+UIStroke4.Transparency = 0.7
+UIStroke4.Parent = DupeBar
+
+local Fill = Instance.new("Frame")
+Fill.ZIndex = 5
+Fill.Size = UDim2.new(0, 0, 1, 0)
+Fill.BackgroundColor3 = Color3.fromRGB(235, 20, 26)
+Fill.BorderSizePixel = 0
+Fill.Parent = DupeBar
+
+local UICorner19 = Instance.new("UICorner")
+UICorner19.CornerRadius = UDim.new(1, 0)
+UICorner19.Parent = Fill
+
+local UIGradient3 = Instance.new("UIGradient")
+UIGradient3.Color = ColorSequence.new(Color3.fromRGB(242, 102, 106), Color3.fromRGB(235, 20, 26))
+UIGradient3.Parent = Fill
+
+local Shine = Instance.new("Frame")
+Shine.ZIndex = 6
+Shine.Size = UDim2.new(1, 0, 0.45, 0)
+Shine.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Shine.BackgroundTransparency = 0.78
+Shine.BorderSizePixel = 0
+Shine.Parent = Fill
+
+local UICorner20 = Instance.new("UICorner")
+UICorner20.CornerRadius = UDim.new(1, 0)
+UICorner20.Parent = Shine
+
+local Percent = Instance.new("TextLabel")
+Percent.ZIndex = 7
+Percent.Size = UDim2.new(1, 0, 1, 0)
+Percent.BackgroundTransparency = 1
+Percent.Text = "READY"
+Percent.TextColor3 = Color3.fromRGB(255, 255, 255)
+Percent.TextSize = 13
+Percent.Font = Enum.Font.GothamBlack
+Percent.TextStrokeTransparency = 0.25
+Percent.Parent = DupeBar
+
+-- SPACER
+local Spacer = Instance.new("Frame")
+Spacer.LayoutOrder = 5
+Spacer.Size = UDim2.new(1, 0, 0, 6)
+Spacer.BackgroundTransparency = 1
+Spacer.BorderSizePixel = 0
+Spacer.Parent = Body
+
+-- ============================================
+-- FUNCTIONALITY
+-- ============================================
+
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+
+-- DRAGGING (smooth follow + tilt + bounce)
+local dragging = false
+local dragInput = nil
+local dragStart, startPos
+local targetPos = Main.Position
+
+local NORMAL_SCALE = 0.62
+local DRAG_SCALE = 0.67
+
+local function updateListPos()
+    if listOpen and ListFrame.Visible then
+        ListFrame.Position = UDim2.fromOffset(DropBtn.AbsolutePosition.X, DropBtn.AbsolutePosition.Y + DropBtn.AbsoluteSize.Y + 6)
+    end
+end
+
+TitleBar.InputBegan:Connect(function(input)
+    if locked then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = Main.Position
+        targetPos = Main.Position
+        TweenService:Create(UIScale, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = DRAG_SCALE}):Play()
+        TweenService:Create(Main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = -1}):Play()
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                TweenService:Create(UIScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = NORMAL_SCALE}):Play()
+                TweenService:Create(Main, TweenInfo.new(0.4, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {Rotation = 0}):Play()
+            end
+        end)
+    end
+end)
+
+TitleBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        delta = delta / UIScale.Scale -- cursor moves 1:1 even while scaled down
+        targetPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+RunService.RenderStepped:Connect(function(dt)
+    if not dragging then return end
+    local lerp = math.clamp(dt * 16, 0, 1)
+    local newX = Main.Position.X.Offset + (targetPos.X.Offset - Main.Position.X.Offset) * lerp
+    local newY = Main.Position.Y.Offset + (targetPos.Y.Offset - Main.Position.Y.Offset) * lerp
+    local velX = targetPos.X.Offset - Main.Position.X.Offset
+    Main.Position = UDim2.new(Main.Position.X.Scale, newX, Main.Position.Y.Scale, newY)
+    Main.Rotation = math.clamp(velX * 0.012, -4, 4) -- tilt while whipping around
+    updateListPos()
+end)
+
+local dupeOn = false
+local listOpen = false
+local listItems = {}
+
+local function setStatus(text)
+    StatusLabel.Text = "Status: " .. text
+end
+
+local function setProgress(pct, text)
+    Fill:TweenSize(UDim2.new(math.clamp(pct, 0, 1), 0, 1, 0), "Out", "Quad", 0.25, true)
+    Percent.Text = text or (math.floor(math.clamp(pct, 0, 1) * 100) .. "%")
+end
+
+local function toggleSwitch(track, knob, state)
+    knob.Position = state and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+    track.BackgroundColor3 = state and Color3.fromRGB(235, 20, 26) or Color3.fromRGB(48, 48, 52)
+end
+
+Hide.MouseButton1Click:Connect(function()
+    Main.Visible = not Main.Visible
+    if not Main.Visible then ListFrame.Visible = false listOpen = false DropBtn.Text = (selectedDupeItem or "ALL (RANDOM)") .. "  ▼" end
+    Hide.Text = Main.Visible and "Hide" or "Show"
+end)
+
+local locked = false
+Lock.MouseButton1Click:Connect(function()
+    locked = not locked
+    Lock.Text = locked and "🔒" or "🔓"
+    Main.Active = not locked
+end)
+
+-- dropdown
+local closeList
+
+local function makeEntry(text, order)
+    local b = Instance.new("TextButton")
+    b.ZIndex = 52
+    b.LayoutOrder = order
+    b.Size = UDim2.new(1, 0, 0, 24)
+    b.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+    b.BackgroundTransparency = 0.25
+    b.BorderSizePixel = 0
+    b.Text = text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 11
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.AutoButtonColor = false
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    b.Parent = Scroll
+    return b
+end
+
+local function highlight()
+    for name, b in pairs(listItems) do
+        if b and b.Parent then
+            b.TextColor3 = (name == (selectedDupeItem or "ALL (RANDOM)")) and Color3.fromRGB(235, 20, 26) or Color3.fromRGB(255, 255, 255)
+        end
+    end
+end
+
+local function rebuildList()
+    for _, b in pairs(listItems) do if b then b:Destroy() end end
+    table.clear(listItems)
+    listItems["ALL (RANDOM)"] = makeEntry("ALL (RANDOM)", 1)
+    listItems["ALL (RANDOM)"].MouseButton1Click:Connect(function()
+        selectedDupeItem = nil
+        highlight()
+        closeList()
+        setStatus("Item: ALL (random)")
+        ntf("Auto Dupe", "duping: ALL (random)")
+    end)
+    local order = 2
+    for _, name in ipairs(GetLockedTools()) do
+        local n = name
+        listItems[n] = makeEntry(n, order)
+        listItems[n].MouseButton1Click:Connect(function()
+            selectedDupeItem = n
+            highlight()
+            closeList()
+            setStatus("Item: " .. n)
+            ntf("Auto Dupe", "duping: " .. n)
+        end)
+        order = order + 1
+    end
+    local refresh = makeEntry("⟳  REFRESH", order)
+    refresh.TextColor3 = Color3.fromRGB(155, 155, 155)
+    refresh.MouseButton1Click:Connect(function()
+        rebuildList()
+        highlight()
+        ntf("Auto Dupe", "refreshed: " .. tostring(#GetLockedTools()) .. " items")
+    end)
+    highlight()
+end
+
+closeList = function()
+    listOpen = false
+    ListFrame.Visible = false
+    DropBtn.Text = (selectedDupeItem or "ALL (RANDOM)") .. "  ▼"
+end
+
+DropBtn.MouseButton1Click:Connect(function()
+    if listOpen then
+        closeList()
+        return
+    end
+    rebuildList()
+    listOpen = true
+    local count = 0
+    for _ in pairs(listItems) do count = count + 1 end
+    local w = math.max(DropBtn.AbsoluteSize.X, 180)
+    ListFrame.Position = UDim2.fromOffset(DropBtn.AbsolutePosition.X, DropBtn.AbsolutePosition.Y + DropBtn.AbsoluteSize.Y + 6)
+    ListFrame.Size = UDim2.fromOffset(w, math.clamp(count * 28 + 12, 80, 220))
+    ListFrame.Visible = true
+    DropBtn.Text = (selectedDupeItem or "ALL (RANDOM)") .. "  ▲"
+end)
+
+-- main toggle
+Hit.MouseButton1Click:Connect(function()
+    if dupeOn then
+        dupeOn = false
+        toggleSwitch(Track, Knob, false)
+        setStatus("Stopped")
+        setProgress(0, "READY")
+        ntf("Auto Dupe", "stopped")
+        return
+    end
+    if not findMyHouse() then
+        ntf("Auto Dupe", "no owned house / safe found")
+        setStatus("No house found")
+        return
+    end
+    dupeOn = true
+    toggleSwitch(Track, Knob, true)
+    setStatus("Running - " .. (selectedDupeItem or "ALL (random)"))
+    setProgress(0.1, "STARTING")
+    ntf("Auto Dupe", "started - " .. (selectedDupeItem or "ALL (random)"))
+    task.spawn(function()
+        while dupeOn do
+            local t = GetLockedTools()
+            if #t == 0 then
+                setStatus("No duplicable items")
+                task.wait(1)
+            else
+                if not getSafe() then
+                    ntf("Auto Dupe", "lost safe - stopped")
+                    setStatus("Lost safe - stopped")
+                    dupeOn = false
+                    toggleSwitch(Track, Knob, false)
+                    setProgress(0, "READY")
+                    break
+                end
+                local pick = selectedDupeItem and table.find(t, selectedDupeItem) and selectedDupeItem
+                    or t[math.random(1, #t)]
+                setStatus("Duping: " .. pick)
+                setProgress(0.5, "DUPING")
+                dupe1(pick)
+                setProgress(1, "DONE")
+                task.wait(0.15)
+                if dupeOn then setProgress(0.1, "NEXT") end
+            end
+        end
+    end)
+end)
+
+ntf("YVL Auto Dupe", "loaded")
